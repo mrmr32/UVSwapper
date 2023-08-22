@@ -7,13 +7,14 @@ using System.Linq;
 using System.Threading;
 using UnityEngine;
 using UnityEngine.Assertions;
+using static OVRLipSync;
 
 namespace JustAnotherUser {
     /**
-     * © Mrmr32; please include `mrmr32.UVSwapper.3:/Custom/Scripts/mrmr32/UVSwapper/src/UVData.cs` in your .cslist
+     * © Mrmr32; please include `mrmr32.UVSwapper.<version>:/Custom/Scripts/mrmr32/UVSwapper/src/UVData.cs` in your .cslist
      **/
     public class UVData {
-        public static int PLUGIN_VERSION = 3;
+        public static string packagePath = null;
 
         private static object _loadedLock = new object();
         private static bool _loaded = false,
@@ -45,7 +46,7 @@ namespace JustAnotherUser {
          * Loads the needed data to work.
          * The data will be ready when 
          **/
-        public static void Load() {
+        public static void Load(MVRScript script) {
             bool alreadyLoading = false;
             lock (UVData._loadedLock) {
                 alreadyLoading = UVData._loading || UVData._loaded;
@@ -57,9 +58,10 @@ namespace JustAnotherUser {
                 return;
             }
 
+            UVData.packagePath = GetPackagePath(script);
             new Thread(() => {
                 try {
-                    string text = FileManagerSecure.ReadAllText("mrmr32.UVSwapper." + PLUGIN_VERSION + ":/Custom/Scripts/mrmr32/UVSwapper/src/UVData.json");
+                    string text = FileManagerSecure.ReadAllText(UVData.packagePath + "Custom/Scripts/mrmr32/UVSwapper/src/UVData.json");
                     JSONNode jsonNode = JSON.Parse(text);
 
                     UVData._NUM_MARGIN_FACE_UVS = (ushort)jsonNode["face"]["MarginVerticesNum"].AsInt;
@@ -88,6 +90,17 @@ namespace JustAnotherUser {
                     }
                 }
             }).Start();
+        }
+
+        /**
+         * Gets the path prefix of the package that contains the plugin
+         * @ref https://hub.virtamate.com/threads/reading-a-json-file-inside-my-own-package.34677/post-95090
+         **/
+        private static string GetPackagePath(MVRScript script) {
+            string id = script.name.Substring(0, script.name.IndexOf('_'));
+            string filename = script.manager.GetJSON()["plugins"][id].Value;
+            int idx = filename.IndexOf(":/");
+            return (idx >= 0) ? filename.Substring(0, idx + 2) : "";
         }
 
         private static Vector2[] loadUVs(JSONArray uvNodes) {
@@ -294,6 +307,86 @@ namespace JustAnotherUser {
         }
 
         /**
+         * Merge two textures into the (uncloned) first
+         * @post Run `texture.Apply()`
+         **/
+        public static Texture2D MergeTextures(Texture2D baseTexture, Texture2D toAdd) {
+            toAdd = ResizeTexture(toAdd, baseTexture.width, baseTexture.height);
+
+            for (int y = 0; y < baseTexture.height; y++) {
+                for (int x = 0; x < baseTexture.width; x++) {
+                    Color add = toAdd.GetPixel(x, y);
+                    if (add.a == 0) continue; // transparent
+
+                    if (add.a == 1) baseTexture.SetPixel(x, y, add);
+                    else {
+                        // semi-transparent
+                        Color result = (1 - add.a) * baseTexture.GetPixel(x, y) + add.a * add;
+                        baseTexture.SetPixel(x, y, result);
+                    }
+                }
+            }
+
+            return baseTexture;
+        }
+
+        /**
+         * Clones a texture
+         * @post Run `texture.Apply()`
+         **/
+        public static Texture2D CloneTexture(Texture2D originalTexture) {
+            Texture2D copyTexture = new Texture2D(originalTexture.width, originalTexture.height);
+            copyTexture.SetPixels(originalTexture.GetPixels());
+            return copyTexture;
+        }
+
+        /**
+         * Offsets the color of the (unclonned) texture
+         * @post Run `texture.Apply()`
+         * @param t Texture to offset
+         * @param vector (HSL) offsets
+         **/
+        public static Texture2D OffsetTexture(Texture2D t, Vector3 vector) {
+            SuperController.LogMessage("Offset: " + vector.x + " ; " + vector.y + " ; " + vector.z);
+            for (int y = 0; y < t.height; y++) {
+                for (int x = 0; x < t.width; x++) {
+                    // current color
+                    Color pixel = t.GetPixel(x, y);
+                    if (pixel.a == 0) continue;
+                    float hue, saturation, value;
+                    Color.RGBToHSV(pixel, out hue, out saturation, out value);
+
+                    float resultHue = hue + vector[0];
+                    if (resultHue < 0) resultHue += 1.0f;
+                    else if (resultHue > 1) resultHue -= 1.0f;
+
+                    // set new color
+                    Color result = Color.HSVToRGB(resultHue, Mathf.Clamp01(saturation + vector[1]), Mathf.Clamp01(value + vector[2]), false);
+                    result.a = pixel.a;
+                    t.SetPixel(x, y, result);
+                }
+            }
+
+            return t;
+        }
+
+        /**
+         * Resizes a texture (if needed)
+         * @ref https://stackoverflow.com/a/56949497/9178470
+         **/
+        private static Texture2D ResizeTexture(Texture2D texture2D, int targetX, int targetY) {
+            if (texture2D.width == targetX && texture2D.height == targetY) return texture2D;
+
+            RenderTexture rt = new RenderTexture(targetX, targetY, 24);
+            RenderTexture.active = rt;
+            Graphics.Blit(texture2D, rt);
+            Texture2D result = new Texture2D(targetX, targetY);
+            result.ReadPixels(new Rect(0, 0, targetX, targetY), 0, 0);
+            result.Apply();
+            return result;
+        }
+
+        /**
          * Gets the mean color of a line
          * @ref made with ChatGPT3
          * @param texture Where to take the color
@@ -301,7 +394,7 @@ namespace JustAnotherUser {
          * @param point2 Where the line ends
          * @return Mean color
          **/
-        private static Color GetMeanColor(Texture2D texture, Vector2 point1, Vector2 point2, int numberOfSamples = 10) {
+        public static Color GetMeanColor(Texture2D texture, Vector2 point1, Vector2 point2, int numberOfSamples = 10) {
             Color[] samples = new Color[numberOfSamples];
             float step = 1.0f / (numberOfSamples - 1);
             float t = 0;
