@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 
 namespace JustAnotherUser {
     public class UVSwapper : MVRScript {
-        private static readonly string VERSION = "0.3";
+        private static readonly string VERSION = "0.3.1";
         private static readonly int UUID_LENGTH = 8;
 
         public static readonly int GENITALS_REGION = 3;
@@ -119,7 +119,7 @@ namespace JustAnotherUser {
         }
 
         protected void Start() {
-            UVData.Load(this);
+            UVData.Load();
         }
 
         protected void Update() {

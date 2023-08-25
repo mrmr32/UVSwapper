@@ -14,7 +14,8 @@ namespace JustAnotherUser {
      * © Mrmr32; please include `mrmr32.UVSwapper.<version>:/Custom/Scripts/mrmr32/UVSwapper/src/UVData.cs` in your .cslist
      **/
     public class UVData {
-        public static string packagePath = null;
+        public static int PLUGIN_VERSION = 5;
+        public static string packagePath = "mrmr32.UVSwapper." + PLUGIN_VERSION + ":/";
 
         private static object _loadedLock = new object();
         private static bool _loaded = false,
@@ -46,7 +47,7 @@ namespace JustAnotherUser {
          * Loads the needed data to work.
          * The data will be ready when 
          **/
-        public static void Load(MVRScript script) {
+        public static void Load() {
             bool alreadyLoading = false;
             lock (UVData._loadedLock) {
                 alreadyLoading = UVData._loading || UVData._loaded;
@@ -58,7 +59,6 @@ namespace JustAnotherUser {
                 return;
             }
 
-            UVData.packagePath = GetPackagePath(script);
             new Thread(() => {
                 try {
                     string text = FileManagerSecure.ReadAllText(UVData.packagePath + "Custom/Scripts/mrmr32/UVSwapper/src/UVData.json");
@@ -90,17 +90,6 @@ namespace JustAnotherUser {
                     }
                 }
             }).Start();
-        }
-
-        /**
-         * Gets the path prefix of the package that contains the plugin
-         * @ref https://hub.virtamate.com/threads/reading-a-json-file-inside-my-own-package.34677/post-95090
-         **/
-        private static string GetPackagePath(MVRScript script) {
-            string id = script.name.Substring(0, script.name.IndexOf('_'));
-            string filename = script.manager.GetJSON()["plugins"][id].Value;
-            int idx = filename.IndexOf(":/");
-            return (idx >= 0) ? filename.Substring(0, idx + 2) : "";
         }
 
         private static Vector2[] loadUVs(JSONArray uvNodes) {
